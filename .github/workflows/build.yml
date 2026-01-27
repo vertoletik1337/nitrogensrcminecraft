@@ -23,10 +23,10 @@ jobs:
           $jvmLibPath = Get-ChildItem -Path $env:JAVA_HOME -Filter jvm.lib -Recurse | Select-Object -First 1
           $env:LIB += ";$($jvmLibPath.DirectoryName)"
           $env:INCLUDE += ";$env:JAVA_HOME\include;$env:JAVA_HOME\include\win32"
-          msbuild src/NitrogenDLL/NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
+          msbuild nitrogensrcminecraft/NitrogenDLL/NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Nitrogen-DLL-Ready
-          path: src/NitrogenDLL/x64/Release/NitrogenDLL.dll
+          path: nitrogensrcminecraft/NitrogenDLL/x64/Release/NitrogenDLL.dll
