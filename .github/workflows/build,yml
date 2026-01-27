@@ -1,0 +1,39 @@
+name: Build Nitrogen Cheat
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Чтобы можно было запустить сборку кнопкой
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v1
+
+    # Сборка C# Инжектора
+    - name: Restore NuGet packages
+      run: nuget restore src/NitrogenInjector/NitrogenInjector.sln
+
+    - name: Build C# Injector
+      run: msbuild src/NitrogenInjector/NitrogenInjector.sln /p:Configuration=Release /p:Platform="Any CPU"
+
+    # Сборка C++ DLL (нужно указать путь к jni.h в настройках проекта!)
+    - name: Build C++ DLL
+      run: msbuild src/NitrogenDLL/NitrogenDLL.sln /p:Configuration=Release /p:Platform=x64
+
+    # Загрузка готового стаффа в артефакты
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Nitrogen-Cheat-Pack
+        path: |
+          src/NitrogenInjector/bin/Release/Nitrogen.exe
+          src/NitrogenDLL/x64/Release/Nitrogen.dll
