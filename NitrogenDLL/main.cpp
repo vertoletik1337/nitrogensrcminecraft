@@ -1,105 +1,95 @@
-#include <windows.h>
 #include <jni.h>
-#include <thread>
+#include <windows.h>
+#include <math.h>
 #include <vector>
-#include <string>
 
-// Хитбоксы
-float hb_scale = 0.1f;
+JavaVM* g_jvm = nullptr;
 
-// Помощник для поиска полей по списку имен (для универсальности)
-jfieldID find_field_universal(JNIEnv* env, jclass cls, const std::vector<const char*>& names, const char* sig) {
-    for (const char* name : names) {
-        jfieldID fid = env->GetFieldID(cls, name, sig);
-        if (fid) return fid;
-        env->ExceptionClear();
-    }
-    return nullptr;
+// Структура для хранения позиции
+struct Vec3 { double x, y, z; };
+
+// Функция получения расстояния
+double GetDist(Vec3 a, Vec3 b) {
+    return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2) + pow(a.z - b.z, 2));
 }
 
-void main_cheat_loop() {
-    JavaVM* jvm;
-    jsize nVMs;
-    if (JNI_GetCreatedJavaVMs(&jvm, 1, &nVMs) != JNI_OK || nVMs == 0) return;
-
+void HackThread(HMODULE hModule) {
+    if (JNI_GetCreatedJavaVMs(&g_jvm, 1, nullptr) != JNI_OK) return;
     JNIEnv* env;
-    jvm->AttachCurrentThread((void**)&env, NULL);
+    g_jvm->AttachCurrentThread((void**)&env, nullptr);
 
-    // Достаем ClassLoader
-    jclass thread_cls = env->FindClass("java/lang/Thread");
-    jmethodID curr_thread_mid = env->GetStaticMethodID(thread_cls, "currentThread", "()Ljava/lang/Thread;");
-    jobject curr_thread_obj = env->CallStaticObjectMethod(thread_cls, curr_thread_mid);
-    jmethodID get_loader_mid = env->GetMethodID(thread_cls, "getContextClassLoader", "()Ljava/lang/ClassLoader;");
-    jobject class_loader = env->CallObjectMethod(curr_thread_obj, get_loader_mid);
+    float hitboxExpand = 0.0f;
 
-    // Подготовка поиска классов
-    jclass loader_cls = env->FindClass("java/lang/ClassLoader");
-    jmethodID load_cls_mid = env->GetMethodID(loader_cls, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+    while (!(GetAsyncKeyState(VK_END))) {
+        // --- HITBOX EXPANDER ---
+        if (GetAsyncKeyState(VK_UP) & 1) hitboxExpand += 0.1f;
+        if (GetAsyncKeyState(VK_DOWN) & 1) hitboxExpand -= 0.1f;
 
-    auto find_cls = [&](const char* name) -> jclass {
-        jstring js_name = env->NewStringUTF(name);
-        jclass c = (jclass)env->CallObjectMethod(class_loader, load_cls_mid, js_name);
-        env->DeleteLocalRef(js_name);
-        if (env->ExceptionCheck()) { env->ExceptionClear(); return nullptr; }
-        return c;
-    };
+        // --- AIMBOT + CRITICAL TRIGGERBOT ---
+        if (GetAsyncKeyState('R')) {
+            jclass mcClass = env->FindClass("net/minecraft/client/Minecraft");
+            jmethodID getInstance = env->GetStaticMethodID(mcClass, "getInstance", "()Lnet/minecraft/client/Minecraft;");
+            jobject mc = env->CallStaticObjectMethod(mcClass, getInstance);
 
-    while (true) {
-        if (GetAsyncKeyState(VK_END)) break;
+            // Получаем игрока
+            jfieldID playerField = env->GetFieldID(mcClass, "player", "Lnet/minecraft/client/player/LocalPlayer;");
+            jobject localPlayer = env->GetObjectField(mc, playerField);
 
-        // 1. Управление хитбоксами
-        if (GetAsyncKeyState(VK_UP) & 1) hb_scale += 0.1f;
-        if (GetAsyncKeyState(VK_DOWN) & 1) hb_scale -= 0.1f;
+            // Получаем мир
+            jfieldID worldField = env->GetFieldID(mcClass, "level", "Lnet/minecraft/client/multiplayer/ClientLevel;");
+            jobject level = env->GetObjectField(mc, worldField);
 
-        // 2. Достаем Minecraft Instance
-        jclass mc_cls = find_cls("net.minecraft.client.Minecraft");
-        if (!mc_cls) mc_cls = find_cls("net.minecraft.class_310");
-        if (!mc_cls) continue;
+            // Получаем контроллер (для атаки)
+            jfieldID conField = env->GetFieldID(mcClass, "gameMode", "Lnet/minecraft/client/multiplayer/MultiPlayerGameMode;");
+            jobject gameMode = env->GetObjectField(mc, conField);
 
-        jmethodID get_inst_mid = env->GetStaticMethodID(mc_cls, "getInstance", "()Lnet/minecraft/client/Minecraft;");
-        if (!get_inst_mid) {
-            env->ExceptionClear();
-            get_inst_mid = env->GetStaticMethodID(mc_cls, "method_1551", "()Lnet/minecraft/class_310;");
-        }
-        if (!get_inst_mid) continue;
-        jobject mc_inst = env->CallStaticObjectMethod(mc_cls, get_inst_mid);
+            if (localPlayer && level && gameMode) {
+                jclass levelClass = env->GetObjectClass(level);
+                jmethodID getPlayers = env->GetMethodID(levelClass, "players", "()Ljava/util/List;");
+                jobject playerList = env->CallObjectMethod(level, getPlayers);
 
-        // 3. TRIGGERBOT / CRITS (Клавиша R)
-        if (GetAsyncKeyState('R') & 0x8000) {
-            // Ищем игрока (field_1724 - Fabric, player - Vanilla)
-            jfieldID player_fid = find_field_universal(env, mc_cls, {"field_1724", "player", "thePlayer"}, "Lnet/minecraft/class_746;");
-            if (!player_fid) player_fid = find_field_universal(env, mc_cls, {"field_1724", "player"}, "Lnet/minecraft/client/network/ClientPlayerEntity;");
-            
-            jobject player_obj = env->GetObjectField(mc_inst, player_fid);
-            if (player_obj) {
-                // Проверка на падение (Crits)
-                jclass ent_cls = env->GetObjectClass(player_obj);
-                jfieldID fall_fid = find_field_universal(env, ent_cls, {"field_6008", "fallDistance", "h"}, "F");
-                jfieldID ground_fid = find_field_universal(env, ent_cls, {"field_6036", "onGround", "z"}, "Z");
+                jclass listClass = env->FindClass("java/util/List");
+                jmethodID listSize = env->GetMethodID(listClass, "size", "()I");
+                jmethodID listGet = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
+                int size = env->CallIntMethod(playerList, listSize);
 
-                float fall_dist = env->GetFloatField(player_obj, fall_fid);
-                bool on_ground = env->GetBooleanField(player_obj, ground_fid);
+                jclass entityClass = env->FindClass("net/minecraft/world/entity/Entity");
+                jmethodID getPos = env->GetMethodID(entityClass, "position", "()Lnet/minecraft/world/phys/Vec3;");
 
-                if (fall_dist > 0.0f && !on_ground) {
-                    // Ищем цель под прицелом (crosshairTarget)
-                    jfieldID target_fid = find_field_universal(env, mc_cls, {"field_1765", "crosshairTarget", "objectMouseOver"}, "Lnet/minecraft/class_239;");
-                    jobject target_obj = env->GetObjectField(mc_inst, target_fid);
+                for (int i = 0; i < size; i++) {
+                    jobject targetPlayer = env->CallObjectMethod(playerList, listGet, i);
+                    if (env->IsSameObject(localPlayer, targetPlayer)) continue;
 
-                    if (target_obj) {
-                        // Тут вызываем атаку через interactionManager (зависит от версии, вызываем method_2918)
-                        // ПРИМЕР: env->CallVoidMethod(interactionManager, attackMethod, player, targetEntity);
+                    // Логика проверки на падение (Криты)
+                    jclass lpClass = env->GetObjectClass(localPlayer);
+                    jfieldID fallField = env->GetFieldID(lpClass, "fallDistance", "F");
+                    float fallDist = env->GetFloatField(localPlayer, fallField);
+
+                    jmethodID getDelta = env->GetMethodID(lpClass, "getDeltaMovement", "()Lnet/minecraft/world/phys/Vec3;");
+                    jobject deltaVec = env->CallObjectMethod(localPlayer, getDelta);
+                    jclass vec3Class = env->FindClass("net/minecraft/world/phys/Vec3");
+                    jfieldID yField = env->GetFieldID(vec3Class, "y", "D");
+                    double dy = env->GetDoubleField(deltaVec, yField);
+
+                    // Условие: падаем вниз
+                    if (fallDist > 0.0f && dy < 0.0) {
+                        jclass gmClass = env->GetObjectClass(gameMode);
+                        jmethodID attackMethod = env->GetMethodID(gmClass, "attack", "(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/entity/Entity;)V");
+                        
+                        // Прямой удар (Triggerbot)
+                        env->CallVoidMethod(gameMode, attackMethod, localPlayer, targetPlayer);
                     }
                 }
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        Sleep(10);
     }
-    jvm->DetachCurrentThread();
+
+    g_jvm->DetachCurrentThread();
+    FreeLibraryAndExitThread(hModule, 0);
 }
 
-BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID res) {
-    if (reason == DLL_PROCESS_ATTACH) {
-        std::thread(main_cheat_loop).detach();
-    }
+BOOL APIENTRY DllMain(HMODULE h, DWORD r, LPVOID lp) {
+    if (r == DLL_PROCESS_ATTACH) CreateThread(0, 0, (LPTHREAD_START_ROUTINE)HackThread, h, 0, 0);
     return TRUE;
 }
