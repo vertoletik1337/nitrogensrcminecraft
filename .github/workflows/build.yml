@@ -1,46 +1,63 @@
-name: Nitrogen_Final_Bypass
-on: [push]
+name: Nitrogen_Ultimate_Success_Build
+on: [push, pull_request]
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout
+      - name: 1. Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: 2. Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: 3. Setup Java JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Force Fix JNI Paths
+      - name: 4. Patch Project and Build DLL
         shell: pwsh
         run: |
-          # Этот скрипт найдет твой vcxproj и насильно воткнет туда пути к JDK
+          Write-Host "Начинаю фикс путей JNI..." -ForegroundColor Cyan
           $path = "NitrogenDLL/NitrogenDLL.vcxproj"
-          $jdkInclude = "$($env:JAVA_HOME)\include"
-          $jdkWinInclude = "$($env:JAVA_HOME)\include\win32"
           
-          $content = Get-Content $path
-          # Вставляем пути к Java в стандартные IncludePath проекта
-          $content = $content -replace '<IncludePath>', "<IncludePath>$jdkInclude;$jdkWinInclude;"
-          $content | Set-Content $path
-          Write-Host "Пути JNI вшиты напрямую в проект!" -ForegroundColor Green
+          # Проверяем, существует ли файл проекта, чтобы не упасть
+          if (Test-Path $path) {
+            $jdkInclude = "$($env:JAVA_HOME)\include"
+            $jdkWinInclude = "$($env:JAVA_HOME)\include\win32"
+            
+            # Читаем файл и насильно вшиваем пути к Java в IncludePath
+            $content = Get-Content $path
+            $content = $content -replace '<IncludePath>', "<IncludePath>$jdkInclude;$jdkWinInclude;"
+            $content | Set-Content $path
+            Write-Host "Пути Java успешно вшиты в проект!" -ForegroundColor Green
+            
+            # Запускаем сборку DLL
+            msbuild $path /p:Configuration=Release /p:Platform=x64
+          } else {
+            Write-Error "Файл проекта $path не найден! Проверь структуру папок."
+            exit 1
+          }
 
-      - name: Build Everything
-        shell: cmd
+      - name: 5. Build Injector (C#)
+        shell: pwsh
         run: |
-          :: Билдим DLL
-          msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
-          :: Билдим Инжектор
-          dotnet restore NitrogenInjector\NitrogenInjector.csproj
-          msbuild NitrogenInjector\NitrogenInjector.csproj /p:Configuration=Release /p:Platform=AnyCPU
+          $injPath = "NitrogenInjector/NitrogenInjector.csproj"
+          if (Test-Path $injPath) {
+            Write-Host "Собираю инжектор..." -ForegroundColor Cyan
+            dotnet restore $injPath
+            msbuild $injPath /p:Configuration=Release /p:Platform=AnyCPU
+          } else {
+            Write-Error "Файл инжектора $injPath не найден!"
+            exit 1
+          }
 
-      - name: Upload
+      - name: 6. Upload Ready Files
         uses: actions/upload-artifact@v4
         with:
-          name: Nitrogen_Ready_To_Use
+          name: Nitrogen_Final_Package
           path: |
             NitrogenDLL/x64/Release/NitrogenDLL.dll
-            NitrogenInjector/bin/Release/net48/Nitrogen.exe
+            NitrogenInjector/bin/Release/**/Nitrogen.exe
