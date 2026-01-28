@@ -1,4 +1,4 @@
-name: Nitrogen_Final_Winner
+name: Nitrogen_Manual_Success
 on: [push]
 
 jobs:
@@ -11,26 +11,10 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Physical Fix JNI
-        shell: pwsh
-        run: |
-          # Вместо того чтобы править пути, мы просто копируем файлы Java 
-          # Прямо в папку с твоим исходником main.cpp
-          $targetDir = "NitrogenDLL"
-          Copy-Item "$($env:JAVA_HOME)\include\jni.h" -Destination $targetDir
-          Copy-Item "$($env:JAVA_HOME)\include\win32\jni_md.h" -Destination $targetDir
-          Write-Host "Файлы jni.h и jni_md.h физически скопированы в $targetDir" -ForegroundColor Green
-
-      - name: Build Project
+      - name: Build All
         shell: cmd
         run: |
-          :: Теперь компилятор ОБЯЗАН их увидеть, так как они в той же папке
+          :: Билдим DLL (файлы jni.h уже внутри папки проекта)
           msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
           
           :: Билдим инжектор
@@ -40,7 +24,7 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Nitrogen_Ready
+          name: Nitrogen_Ready_Archive
           path: |
             **/Release/*.dll
             **/Release/*.exe
