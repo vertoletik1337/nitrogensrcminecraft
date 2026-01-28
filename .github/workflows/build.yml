@@ -1,4 +1,4 @@
-name: Nitrogen_Manual_Success
+name: Nitrogen_Final_Victory
 on: [push]
 
 jobs:
@@ -11,20 +11,20 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build All
+      - name: Build Everything
         shell: cmd
         run: |
-          :: Билдим DLL (файлы jni.h уже внутри папки проекта)
-          msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
+          :: /p:LibraryPath говорит компилятору смотреть либы в папке NitrogenDLL
+          msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64 /p:LibraryPath="D:\a\nitrogensrcminecraft\nitrogensrcminecraft\NitrogenDLL"
           
           :: Билдим инжектор
           dotnet restore NitrogenInjector\NitrogenInjector.csproj
           msbuild NitrogenInjector\NitrogenInjector.csproj /p:Configuration=Release /p:Platform=AnyCPU
 
-      - name: Upload
+      - name: Upload Finished Cheat
         uses: actions/upload-artifact@v4
         with:
-          name: Nitrogen_Ready_Archive
+          name: Nitrogen_Ready_To_Use
           path: |
             **/Release/*.dll
             **/Release/*.exe
