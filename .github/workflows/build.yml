@@ -1,66 +1,21 @@
-name: Nitrogen Build System
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-jobs:
-  build:
-    runs-on: windows-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-
-    - name: Setup Java JDK (for JNI headers)
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-
-    - name: Build Nitrogen DLL (C++)
+- name: Build Nitrogen DLL
       shell: powershell
       run: |
-        # Динамический поиск проекта, чтобы не ебать мозг с путями
-        $projectFile = Get-ChildItem -Path "nitrogensrcminecraft" -Filter "NitrogenDLL.vcxproj" -Recurse | Select-Object -First 1
+        # Ищем файл проекта ВООБЩЕ везде в текущей директории
+        $projectFile = Get-ChildItem -Filter "NitrogenDLL.vcxproj" -Recurse | Select-Object -First 1
         
-        if (-not $projectFile) { 
-          Write-Host "Бля, проект не найден в nitrogensrcminecraft!" -ForegroundColor Red
-          ls -R
-          exit 1 
-        }
-
-        # Настраиваем окружение для JNI
-        $env:INCLUDE += ";$($env:JAVA_HOME)\include;$($env:JAVA_HOME)\include\win32"
-        $jvmLibDir = Get-ChildItem -Path $env:JAVA_HOME -Filter jvm.lib -Recurse | Select-Object -ExpandProperty DirectoryName -First 1
-        $env:LIB += ";$jvmLibDir"
-
-        Write-Host "Билдим DLL: $($projectFile.FullName)" -ForegroundColor Cyan
-        msbuild $($projectFile.FullName) /p:Configuration=Release /p:Platform=x64
-
-    - name: Build Nitrogen Injector (C#)
-      shell: powershell
-      run: |
-        # Ищем проект инжектора
-        $injectorFile = Get-ChildItem -Path "nitrogensrcminecraft" -Filter "*.csproj" -Recurse | Select-Object -First 1
-        
-        if ($injectorFile) {
-            Write-Host "Билдим Инжектор: $($injectorFile.FullName)" -ForegroundColor Cyan
-            msbuild $($injectorFile.FullName) /p:Configuration=Release /p:Platform=AnyCPU
+        if ($projectFile) {
+            $projPath = $projectFile.FullName
+            Write-Host "Нашел проект по пути: $projPath" -ForegroundColor Green
+            
+            # Настройка JNI (без этого C++ не поймет Java)
+            $env:INCLUDE += ";$($env:JAVA_HOME)\include;$($env:JAVA_HOME)\include\win32"
+            
+            # Собираем
+            msbuild "$projPath" /p:Configuration=Release /p:Platform=x64
+            Write-Host "Готово! Тефтели полетели." -ForegroundColor Cyan
         } else {
-            Write-Host "Проект инжектора не найден, пропускаю." -ForegroundColor Yellow
+            Write-Host "Бля, даже так не нашел! Показываю всё, что есть:" -ForegroundColor Red
+            Get-ChildItem -Recurse | Select-Object FullName
+            exit 1
         }
-
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: Nitrogen-Package
-        path: |
-          **/Release/*.dll
-          **/Release/*.exe
-          **/bin/Release/*.exe
