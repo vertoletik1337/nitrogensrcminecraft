@@ -5,7 +5,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup MSBuild
@@ -17,27 +17,30 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Build Nitrogen DLL
+      - name: Compile Everything
         shell: powershell
         run: |
-          $proj = Get-ChildItem -Filter "NitrogenDLL.vcxproj" -Recurse | Select-Object -First 1
-          if ($proj) {
-            # Явно прописываем пути к JNI, чтобы C++ не ныл
-            $env:INCLUDE += ";$($env:JAVA_HOME)\include;$($env:JAVA_HOME)\include\win32"
-            msbuild $($proj.FullName) /p:Configuration=Release /p:Platform=x64
+          # Фикс ошибки C1083: ищем jni.h и прописываем пути
+          $jniPath = "$($env:JAVA_HOME)\include"
+          $jniWinPath = "$($env:JAVA_HOME)\include\win32"
+          $env:INCLUDE += ";$jniPath;$jniWinPath"
+          
+          # Находим проект DLL, где бы он ни запрятался
+          $dllProj = Get-ChildItem -Filter "NitrogenDLL.vcxproj" -Recurse | Select-Object -First 1
+          if ($dllProj) {
+            Write-Host "Собираю DLL: $($dllProj.FullName)" -ForegroundColor Cyan
+            msbuild $($dllProj.FullName) /p:Configuration=Release /p:Platform=x64
           }
 
-      - name: Build Injector
-        shell: powershell
-        run: |
-          $inj = Get-ChildItem -Filter "NitrogenInjector.csproj" -Recurse | Select-Object -First 1
-          if ($inj) {
-            # Восстанавливаем зависимости для C# (Fix NETSDK1004)
-            dotnet restore $($inj.FullName)
-            msbuild $($inj.FullName) /p:Configuration=Release /p:Platform=AnyCPU
+          # Фикс ошибки NETSDK1004: ищем инжектор и восстанавливаем пакеты
+          $injProj = Get-ChildItem -Filter "NitrogenInjector.csproj" -Recurse | Select-Object -First 1
+          if ($injProj) {
+            Write-Host "Собираю Инжектор: $($injProj.FullName)" -ForegroundColor Cyan
+            dotnet restore $($injProj.FullName)
+            msbuild $($injProj.FullName) /p:Configuration=Release /p:Platform=AnyCPU
           }
 
-      - name: Upload Results
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Nitrogen_Ready
