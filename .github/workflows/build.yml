@@ -1,49 +1,41 @@
-name: Nitrogen_Ultra_Final_Build
+name: Nitrogen_Direct_Build
 on: [push, pull_request]
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Setup Java JDK 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Build Nitrogen DLL (C++)
+      - name: Build DLL
         shell: cmd
         run: |
-          :: Жестко прописываем инклуды JDK для фикса ошибки C1083
+          :: Нагло прописываем пути к Java в переменные Windows
           set INCLUDE=%JAVA_HOME%\include;%JAVA_HOME%\include\win32;%INCLUDE%
-          
-          :: Ищем vcxproj и билдим его в Release x64
-          for /r %%f in (NitrogenDLL.vcxproj) do (
-            echo Билдим проект: %%f
-            msbuild "%%f" /p:Configuration=Release /p:Platform=x64 /p:CL_MPCount=4
-          )
+          :: Билдим строго по пути из твоего скрина
+          msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
 
-      - name: Build Nitrogen Injector (C#)
+      - name: Build Injector
         shell: cmd
         run: |
-          :: Ищем csproj, восстанавливаем пакеты и билдим
-          for /r %%f in (*.csproj) do (
-            echo Билдим инжектор: %%f
-            dotnet restore "%%f"
-            msbuild "%%f" /p:Configuration=Release /p:Platform=AnyCPU
-          )
+          :: Восстанавливаем пакеты и билдим инжектор
+          dotnet restore NitrogenInjector\NitrogenInjector.csproj
+          msbuild NitrogenInjector\NitrogenInjector.csproj /p:Configuration=Release /p:Platform=AnyCPU
 
-      - name: Upload Finished Artifacts
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Nitrogen_Final_Binaries
+          name: Nitrogen_Final
           path: |
-            **/x64/Release/*.dll
-            **/bin/Release/*.exe
-            **/bin/Release/net48/*.exe
+            NitrogenDLL/x64/Release/NitrogenDLL.dll
+            NitrogenInjector/bin/Release/net48/Nitrogen.exe
