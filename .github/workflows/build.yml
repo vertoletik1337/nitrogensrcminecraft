@@ -1,24 +1,49 @@
-name: NitrogenFix
-on: [push]
+name: Nitrogen_Ultra_Final_Build
+on: [push, pull_request]
+
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: microsoft/setup-msbuild@v2
-      - uses: actions/setup-java@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: Build
-        shell: powershell
+
+      - name: Build Nitrogen DLL (C++)
+        shell: cmd
         run: |
-          $env:INCLUDE += ";$($env:JAVA_HOME)\include;$($env:JAVA_HOME)\include\win32"
-          $dll = Get-ChildItem -Filter "NitrogenDLL.vcxproj" -Recurse | Select-Object -First 1
-          if ($dll) { msbuild $($dll.FullName) /p:Configuration=Release /p:Platform=x64 }
-          $inj = Get-ChildItem -Filter "*.csproj" -Recurse | Select-Object -First 1
-          if ($inj) { dotnet restore $($inj.FullName); msbuild $($inj.FullName) /p:Configuration=Release /p:Platform=AnyCPU }
-      - uses: actions/upload-artifact@v4
+          :: Жестко прописываем инклуды JDK для фикса ошибки C1083
+          set INCLUDE=%JAVA_HOME%\include;%JAVA_HOME%\include\win32;%INCLUDE%
+          
+          :: Ищем vcxproj и билдим его в Release x64
+          for /r %%f in (NitrogenDLL.vcxproj) do (
+            echo Билдим проект: %%f
+            msbuild "%%f" /p:Configuration=Release /p:Platform=x64 /p:CL_MPCount=4
+          )
+
+      - name: Build Nitrogen Injector (C#)
+        shell: cmd
+        run: |
+          :: Ищем csproj, восстанавливаем пакеты и билдим
+          for /r %%f in (*.csproj) do (
+            echo Билдим инжектор: %%f
+            dotnet restore "%%f"
+            msbuild "%%f" /p:Configuration=Release /p:Platform=AnyCPU
+          )
+
+      - name: Upload Finished Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: Nitrogen_Ready
-          path: "**/Release/*"
+          name: Nitrogen_Final_Binaries
+          path: |
+            **/x64/Release/*.dll
+            **/bin/Release/*.exe
+            **/bin/Release/net48/*.exe
