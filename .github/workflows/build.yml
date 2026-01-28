@@ -1,4 +1,4 @@
-name: Nitrogen_Final_Victory
+name: Nitrogen_Final_Package_Fix
 on: [push]
 
 jobs:
@@ -14,20 +14,22 @@ jobs:
       - name: Build Everything
         shell: cmd
         run: |
-          :: Используем переменную LIB, чтобы не ломать системные пути
+          :: Используем твою папку с jvm.lib для линковки
           set LIB=D:\a\nitrogensrcminecraft\nitrogensrcminecraft\NitrogenDLL;%LIB%
           
-          :: Билдим DLL
+          :: Собираем DLL (уже знаем, что компилится)
           msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
           
-          :: Билдим инжектор
+          :: Собираем Инжектор
           dotnet restore NitrogenInjector\NitrogenInjector.csproj
           msbuild NitrogenInjector\NitrogenInjector.csproj /p:Configuration=Release /p:Platform=AnyCPU
 
-      - name: Upload Finished Cheat
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Nitrogen_Ready_To_Use
+          name: Nitrogen_Release_Files
+          # Указываем пути МАКСИМАЛЬНО ЖЕСТКО, чтобы Гитхаб их нашел
           path: |
-            **/Release/*.dll
-            **/Release/*.exe
+            NitrogenDLL/x64/Release/NitrogenDLL.dll
+            NitrogenInjector/bin/Release/net48/Nitrogen.exe
+            NitrogenInjector/bin/Release/net48/Nitrogen.exe.config
