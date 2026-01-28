@@ -2,7 +2,7 @@
 #include <windows.h>
 #include <math.h>
 #include <vector>
-
+#pragma comment(lib, "jvm.lib")
 JavaVM* g_jvm = nullptr;
 
 // Структура для хранения позиции
