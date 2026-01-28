@@ -1,32 +1,66 @@
-name: Compile Nitrogen
+name: Nitrogen Build System
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
-  build_dll:
+  build:
     runs-on: windows-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup Java (for JNI headers)
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
 
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+    - name: Setup Java JDK (for JNI headers)
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
 
-      - name: Build Nitrogen DLL
-        run: |
-          $jvmLibPath = Get-ChildItem -Path $env:JAVA_HOME -Filter jvm.lib -Recurse | Select-Object -First 1
-          $env:LIB += ";$($jvmLibPath.DirectoryName)"
-          $env:INCLUDE += ";$env:JAVA_HOME\include;$env:JAVA_HOME\include\win32"
-          msbuild nitrogensrcminecraft/NitrogenDLL/NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
+    - name: Build Nitrogen DLL (C++)
+      shell: powershell
+      run: |
+        # Динамический поиск проекта, чтобы не ебать мозг с путями
+        $projectFile = Get-ChildItem -Path "nitrogensrcminecraft" -Filter "NitrogenDLL.vcxproj" -Recurse | Select-Object -First 1
+        
+        if (-not $projectFile) { 
+          Write-Host "Бля, проект не найден в nitrogensrcminecraft!" -ForegroundColor Red
+          ls -R
+          exit 1 
+        }
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Nitrogen-DLL-Ready
-          path: nitrogensrcminecraft/NitrogenDLL/x64/Release/NitrogenDLL.dll
+        # Настраиваем окружение для JNI
+        $env:INCLUDE += ";$($env:JAVA_HOME)\include;$($env:JAVA_HOME)\include\win32"
+        $jvmLibDir = Get-ChildItem -Path $env:JAVA_HOME -Filter jvm.lib -Recurse | Select-Object -ExpandProperty DirectoryName -First 1
+        $env:LIB += ";$jvmLibDir"
+
+        Write-Host "Билдим DLL: $($projectFile.FullName)" -ForegroundColor Cyan
+        msbuild $($projectFile.FullName) /p:Configuration=Release /p:Platform=x64
+
+    - name: Build Nitrogen Injector (C#)
+      shell: powershell
+      run: |
+        # Ищем проект инжектора
+        $injectorFile = Get-ChildItem -Path "nitrogensrcminecraft" -Filter "*.csproj" -Recurse | Select-Object -First 1
+        
+        if ($injectorFile) {
+            Write-Host "Билдим Инжектор: $($injectorFile.FullName)" -ForegroundColor Cyan
+            msbuild $($injectorFile.FullName) /p:Configuration=Release /p:Platform=AnyCPU
+        } else {
+            Write-Host "Проект инжектора не найден, пропускаю." -ForegroundColor Yellow
+        }
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Nitrogen-Package
+        path: |
+          **/Release/*.dll
+          **/Release/*.exe
+          **/bin/Release/*.exe
