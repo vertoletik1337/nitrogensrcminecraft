@@ -1,21 +1,37 @@
-- name: Build Nitrogen DLL
-      shell: powershell
-      run: |
-        # Ищем файл проекта ВООБЩЕ везде в текущей директории
-        $projectFile = Get-ChildItem -Filter "NitrogenDLL.vcxproj" -Recurse | Select-Object -First 1
-        
-        if ($projectFile) {
-            $projPath = $projectFile.FullName
-            Write-Host "Нашел проект по пути: $projPath" -ForegroundColor Green
-            
-            # Настройка JNI (без этого C++ не поймет Java)
+name: NitrogenBuild
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Build Everything
+        shell: powershell
+        run: |
+          # Ищем vcxproj по всему дереву, игнорируя дубли папок
+          $proj = Get-ChildItem -Filter "NitrogenDLL.vcxproj" -Recurse | Select-Object -First 1
+          if ($proj) {
             $env:INCLUDE += ";$($env:JAVA_HOME)\include;$($env:JAVA_HOME)\include\win32"
-            
-            # Собираем
-            msbuild "$projPath" /p:Configuration=Release /p:Platform=x64
-            Write-Host "Готово! Тефтели полетели." -ForegroundColor Cyan
-        } else {
-            Write-Host "Бля, даже так не нашел! Показываю всё, что есть:" -ForegroundColor Red
-            Get-ChildItem -Recurse | Select-Object FullName
-            exit 1
-        }
+            msbuild $($proj.FullName) /p:Configuration=Release /p:Platform=x64
+            Write-Host "DLL готова!" -ForegroundColor Green
+          }
+          
+          # Ищем инжектор
+          $inj = Get-ChildItem -Filter "NitrogenInjector.csproj" -Recurse | Select-Object -First 1
+          if ($inj) {
+            msbuild $($inj.FullName) /p:Configuration=Release /p:Platform=AnyCPU
+            Write-Host "Инжектор готов!" -ForegroundColor Green
+          }
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nitrogen_Ready
+          path: "**/Release/*"
