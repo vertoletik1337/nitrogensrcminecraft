@@ -14,8 +14,11 @@ jobs:
       - name: Build Everything
         shell: cmd
         run: |
-          :: /p:LibraryPath говорит компилятору смотреть либы в папке NitrogenDLL
-          msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64 /p:LibraryPath="D:\a\nitrogensrcminecraft\nitrogensrcminecraft\NitrogenDLL"
+          :: Используем переменную LIB, чтобы не ломать системные пути
+          set LIB=D:\a\nitrogensrcminecraft\nitrogensrcminecraft\NitrogenDLL;%LIB%
+          
+          :: Билдим DLL
+          msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
           
           :: Билдим инжектор
           dotnet restore NitrogenInjector\NitrogenInjector.csproj
