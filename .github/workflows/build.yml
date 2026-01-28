@@ -5,32 +5,39 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: Build Everything
+
+      - name: Build Nitrogen DLL
         shell: powershell
         run: |
-          # Ищем vcxproj по всему дереву, игнорируя дубли папок
           $proj = Get-ChildItem -Filter "NitrogenDLL.vcxproj" -Recurse | Select-Object -First 1
           if ($proj) {
+            # Явно прописываем пути к JNI, чтобы C++ не ныл
             $env:INCLUDE += ";$($env:JAVA_HOME)\include;$($env:JAVA_HOME)\include\win32"
             msbuild $($proj.FullName) /p:Configuration=Release /p:Platform=x64
-            Write-Host "DLL готова!" -ForegroundColor Green
           }
-          
-          # Ищем инжектор
+
+      - name: Build Injector
+        shell: powershell
+        run: |
           $inj = Get-ChildItem -Filter "NitrogenInjector.csproj" -Recurse | Select-Object -First 1
           if ($inj) {
+            # Восстанавливаем зависимости для C# (Fix NETSDK1004)
+            dotnet restore $($inj.FullName)
             msbuild $($inj.FullName) /p:Configuration=Release /p:Platform=AnyCPU
-            Write-Host "Инжектор готов!" -ForegroundColor Green
           }
-      - name: Upload
+
+      - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
           name: Nitrogen_Ready
