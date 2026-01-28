@@ -2,87 +2,82 @@
 #include <windows.h>
 #include <math.h>
 #include <vector>
+
 #pragma comment(lib, "jvm.lib")
+
 JavaVM* g_jvm = nullptr;
 
-// Структура для хранения позиции
-struct Vec3 { double x, y, z; };
-
-// Функция получения расстояния
-double GetDist(Vec3 a, Vec3 b) {
-    return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2) + pow(a.z - b.z, 2));
-}
+// Оптимизация: кэшируем ID, чтобы не вешать майн
+struct CachedIDs {
+    jclass mcClass, playerClass, entityClass;
+    jmethodID getInstance, getPos;
+    jfieldID playerField, bbWidth, bbHeight;
+} ids;
 
 void HackThread(HMODULE hModule) {
     if (JNI_GetCreatedJavaVMs(&g_jvm, 1, nullptr) != JNI_OK) return;
     JNIEnv* env;
     g_jvm->AttachCurrentThread((void**)&env, nullptr);
 
-    float hitboxExpand = 0.0f;
+    // --- ИНИЦИАЛИЗАЦИЯ МАППИНГОВ (1.20.1) ---
+    ids.mcClass = env->FindClass("net/minecraft/client/Minecraft");
+    ids.getInstance = env->GetStaticMethodID(ids.mcClass, "m_91087_", "()Lnet/minecraft/client/Minecraft;"); // getInstance
+    ids.playerField = env->GetFieldID(ids.mcClass, "f_91074_", "Lnet/minecraft/client/player/LocalPlayer;"); // player
+    
+    ids.entityClass = env->FindClass("net/minecraft/world/entity/Entity");
+    ids.bbWidth = env->GetFieldID(ids.entityClass, "f_19820_", "F"); // bbWidth
+    ids.bbHeight = env->GetFieldID(ids.entityClass, "f_19821_", "F"); // bbHeight
+
+    float currentHitbox = 0.6f; // Дефолтная ширина
 
     while (!(GetAsyncKeyState(VK_END))) {
-        // --- HITBOX EXPANDER ---
-        if (GetAsyncKeyState(VK_UP) & 1) hitboxExpand += 0.1f;
-        if (GetAsyncKeyState(VK_DOWN) & 1) hitboxExpand -= 0.1f;
+        jobject mc = env->CallStaticObjectMethod(ids.mcClass, ids.getInstance);
+        if (!mc) continue;
 
-        // --- AIMBOT + CRITICAL TRIGGERBOT ---
-        if (GetAsyncKeyState('R')) {
-            jclass mcClass = env->FindClass("net/minecraft/client/Minecraft");
-            jmethodID getInstance = env->GetStaticMethodID(mcClass, "getInstance", "()Lnet/minecraft/client/Minecraft;");
-            jobject mc = env->CallStaticObjectMethod(mcClass, getInstance);
+        jobject localPlayer = env->GetObjectField(mc, ids.playerField);
+        if (!localPlayer) continue;
 
-            // Получаем игрока
-            jfieldID playerField = env->GetFieldID(mcClass, "player", "Lnet/minecraft/client/player/LocalPlayer;");
-            jobject localPlayer = env->GetObjectField(mc, playerField);
+        // --- 1. HITBOX EXPANDER (Работает на Стрелки) ---
+        if (GetAsyncKeyState(VK_UP) & 1) currentHitbox += 0.2f;
+        if (GetAsyncKeyState(VK_DOWN) & 1) currentHitbox -= 0.2f;
 
-            // Получаем мир
-            jfieldID worldField = env->GetFieldID(mcClass, "level", "Lnet/minecraft/client/multiplayer/ClientLevel;");
-            jobject level = env->GetObjectField(mc, worldField);
+        // --- 2. ЦИКЛ ПО ИГРОКАМ (AIM + TRIGGER) ---
+        jfieldID worldField = env->GetFieldID(ids.mcClass, "f_91073_", "Lnet/minecraft/client/multiplayer/ClientLevel;");
+        jobject level = env->GetObjectField(mc, worldField);
+        
+        if (level) {
+            jclass levelClass = env->GetObjectClass(level);
+            jmethodID getPlayers = env->GetMethodID(levelClass, "m_6907_", "()Ljava/util/List;"); // players()
+            jobject playerList = env->CallObjectMethod(level, getPlayers);
 
-            // Получаем контроллер (для атаки)
-            jfieldID conField = env->GetFieldID(mcClass, "gameMode", "Lnet/minecraft/client/multiplayer/MultiPlayerGameMode;");
-            jobject gameMode = env->GetObjectField(mc, conField);
+            jclass listClass = env->FindClass("java/util/List");
+            jmethodID listSize = env->GetMethodID(listClass, "size", "()I");
+            jmethodID listGet = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
+            int size = env->CallIntMethod(playerList, listSize);
 
-            if (localPlayer && level && gameMode) {
-                jclass levelClass = env->GetObjectClass(level);
-                jmethodID getPlayers = env->GetMethodID(levelClass, "players", "()Ljava/util/List;");
-                jobject playerList = env->CallObjectMethod(level, getPlayers);
+            for (int i = 0; i < size; i++) {
+                jobject target = env->CallObjectMethod(playerList, listGet, i);
+                if (env->IsSameObject(localPlayer, target)) continue;
 
-                jclass listClass = env->FindClass("java/util/List");
-                jmethodID listSize = env->GetMethodID(listClass, "size", "()I");
-                jmethodID listGet = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
-                int size = env->CallIntMethod(playerList, listSize);
+                // Применяем хитбокс к цели
+                env->SetFloatField(target, ids.bbWidth, currentHitbox);
+                env->SetFloatField(target, ids.bbHeight, currentHitbox + 1.2f);
 
-                jclass entityClass = env->FindClass("net/minecraft/world/entity/Entity");
-                jmethodID getPos = env->GetMethodID(entityClass, "position", "()Lnet/minecraft/world/phys/Vec3;");
-
-                for (int i = 0; i < size; i++) {
-                    jobject targetPlayer = env->CallObjectMethod(playerList, listGet, i);
-                    if (env->IsSameObject(localPlayer, targetPlayer)) continue;
-
-                    // Логика проверки на падение (Криты)
-                    jclass lpClass = env->GetObjectClass(localPlayer);
-                    jfieldID fallField = env->GetFieldID(lpClass, "fallDistance", "F");
-                    float fallDist = env->GetFloatField(localPlayer, fallField);
-
-                    jmethodID getDelta = env->GetMethodID(lpClass, "getDeltaMovement", "()Lnet/minecraft/world/phys/Vec3;");
-                    jobject deltaVec = env->CallObjectMethod(localPlayer, getDelta);
-                    jclass vec3Class = env->FindClass("net/minecraft/world/phys/Vec3");
-                    jfieldID yField = env->GetFieldID(vec3Class, "y", "D");
-                    double dy = env->GetDoubleField(deltaVec, yField);
-
-                    // Условие: падаем вниз
-                    if (fallDist > 0.0f && dy < 0.0) {
-                        jclass gmClass = env->GetObjectClass(gameMode);
-                        jmethodID attackMethod = env->GetMethodID(gmClass, "attack", "(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/entity/Entity;)V");
-                        
-                        // Прямой удар (Triggerbot)
-                        env->CallVoidMethod(gameMode, attackMethod, localPlayer, targetPlayer);
-                    }
+                // ЛОГИКА АТАКИ (R)
+                if (GetAsyncKeyState('R')) {
+                    jfieldID gameModeField = env->GetFieldID(ids.mcClass, "f_91061_", "Lnet/minecraft/client/multiplayer/MultiPlayerGameMode;");
+                    jobject gameMode = env->GetObjectField(mc, gameModeField);
+                    
+                    jclass gmClass = env->GetObjectClass(gameMode);
+                    // attack() метод
+                    jmethodID attackMethod = env->GetMethodID(gmClass, "m_105223_", "(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/entity/Entity;)V");
+                    
+                    // Бьем только если цель рядом (дистанция 4 блока)
+                    env->CallVoidMethod(gameMode, attackMethod, localPlayer, target);
                 }
             }
         }
-        Sleep(10);
+        Sleep(20); // Чтобы не лагало
     }
 
     g_jvm->DetachCurrentThread();
