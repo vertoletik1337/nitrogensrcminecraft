@@ -1,5 +1,5 @@
-name: Nitrogen_Direct_Build
-on: [push, pull_request]
+name: Nitrogen_Final_Bypass
+on: [push]
 
 jobs:
   build:
@@ -8,34 +8,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Build DLL
-        shell: cmd
+      - name: Force Fix JNI Paths
+        shell: pwsh
         run: |
-          :: Нагло прописываем пути к Java в переменные Windows
-          set INCLUDE=%JAVA_HOME%\include;%JAVA_HOME%\include\win32;%INCLUDE%
-          :: Билдим строго по пути из твоего скрина
-          msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
+          # Этот скрипт найдет твой vcxproj и насильно воткнет туда пути к JDK
+          $path = "NitrogenDLL/NitrogenDLL.vcxproj"
+          $jdkInclude = "$($env:JAVA_HOME)\include"
+          $jdkWinInclude = "$($env:JAVA_HOME)\include\win32"
+          
+          $content = Get-Content $path
+          # Вставляем пути к Java в стандартные IncludePath проекта
+          $content = $content -replace '<IncludePath>', "<IncludePath>$jdkInclude;$jdkWinInclude;"
+          $content | Set-Content $path
+          Write-Host "Пути JNI вшиты напрямую в проект!" -ForegroundColor Green
 
-      - name: Build Injector
+      - name: Build Everything
         shell: cmd
         run: |
-          :: Восстанавливаем пакеты и билдим инжектор
+          :: Билдим DLL
+          msbuild NitrogenDLL\NitrogenDLL.vcxproj /p:Configuration=Release /p:Platform=x64
+          :: Билдим Инжектор
           dotnet restore NitrogenInjector\NitrogenInjector.csproj
           msbuild NitrogenInjector\NitrogenInjector.csproj /p:Configuration=Release /p:Platform=AnyCPU
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Nitrogen_Final
+          name: Nitrogen_Ready_To_Use
           path: |
             NitrogenDLL/x64/Release/NitrogenDLL.dll
             NitrogenInjector/bin/Release/net48/Nitrogen.exe
